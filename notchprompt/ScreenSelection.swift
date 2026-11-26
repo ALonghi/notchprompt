@@ -16,13 +16,21 @@ struct ScreenDescriptor: Equatable {
 enum ScreenSelection {
     static func chooseScreenID(
         selectedScreenID: CGDirectDisplayID,
+        selectedScreenName: String = "",
         screens: [ScreenDescriptor]
     ) -> CGDirectDisplayID? {
         guard !screens.isEmpty else { return nil }
 
-        if selectedScreenID != 0,
-           let selected = screens.first(where: { $0.id == selectedScreenID }) {
-            return selected.id
+        if selectedScreenID != 0 {
+            if let selected = screens.first(where: { $0.id == selectedScreenID }) {
+                return selected.id
+            }
+            // A monitor can come back with a new display ID (another port, a
+            // reboot); find it by name before falling back.
+            if !selectedScreenName.isEmpty,
+               let named = screens.first(where: { $0.localizedName == selectedScreenName }) {
+                return named.id
+            }
         }
 
         if let builtIn = screens.first(where: { $0.isBuiltIn }) {

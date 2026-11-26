@@ -35,11 +35,8 @@ final class PrompterModel: ObservableObject {
 
     static let shared = PrompterModel()
 
-    @Published var script: String = """
-Paste your script here.
-
-Tip: Use the menu bar icon to start/pause or reset the scroll.
-"""
+    /// Starts empty so the overlay and the editor show where the script goes.
+    @Published var script: String = ""
 
     @Published var isRunning: Bool = false
     @Published var manualScrollEnabled: Bool = false
@@ -62,6 +59,8 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     @Published var scrollMode: ScrollMode = .infinite
     /// 0 means "auto" (prefer built-in display)
     @Published var selectedScreenID: CGDirectDisplayID = 0
+    /// Name of the chosen display, used to find it again if its ID changes.
+    @Published var selectedScreenName: String = ""
     // Fraction of the viewport height to fade at top and bottom.
     let edgeFadeFraction: Double = 0.20
 
@@ -73,8 +72,19 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     @Published private(set) var manualScrollDeltaPoints: CGFloat = 0
     private(set) var savedScrollPhaseForResume: CGFloat?
 
+    /// True when no settings were saved before this launch.
+    private(set) var isFirstLaunch: Bool = false
+
     private var countdownTask: Task<Void, Never>?
     private var shouldUseCountdownOnNextStart: Bool = true
+
+    /// The default script earlier versions saved. It is not user content, so it
+    /// loads as an empty script.
+    private static let legacyPlaceholderScript = """
+Paste your script here.
+
+Tip: Use the menu bar icon to start/pause or reset the scroll.
+"""
 
     static let speedRange: ClosedRange<Double> = 10...300
     static let speedStep: Double = 5
@@ -96,12 +106,33 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         static let countdownBehavior = "countdownBehavior"
         static let scrollMode = "scrollMode"
         static let selectedScreenID = "selectedScreenID"
+        static let selectedScreenName = "selectedScreenName"
     }
 
     private init() {}
 
     deinit {
         countdownTask?.cancel()
+    }
+
+    var hasScript: Bool {
+        !script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var wordCount: Int {
+        script.split(whereSeparator: \.isWhitespace).count
+    }
+
+    func clearScript() {
+        stop()
+        script = ""
+        resetScroll()
+    }
+
+    /// Pass 0 for "Automatic".
+    func selectDisplay(id: CGDirectDisplayID, name: String) {
+        selectedScreenName = id == 0 ? "" : name
+        selectedScreenID = id
     }
 
     func pasteScript(_ text: String) {
@@ -258,7 +289,7 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         let trimmed = script.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return 0 }
 
-        let words = max(1, trimmed.split(whereSeparator: \.isWhitespace).count)
+        let words = max(1, wordCount)
         // Approximation: 160 words/minute baseline adjusted by current speed.
         let baselineWPM = 160.0
         let speedFactor = speedPointsPerSecond / Self.speedPresetNormal
@@ -281,11 +312,12 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     func loadFromDefaults() {
         let defaults = UserDefaults.standard
         guard defaults.bool(forKey: DefaultsKey.hasSavedSession) else {
+            isFirstLaunch = true
             return
         }
 
         if let savedScript = defaults.string(forKey: DefaultsKey.script) {
-            script = savedScript
+            script = savedScript == Self.legacyPlaceholderScript ? "" : savedScript
         }
 
         privacyModeEnabled = defaults.object(forKey: DefaultsKey.privacyModeEnabled) as? Bool ?? privacyModeEnabled
@@ -317,6 +349,7 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
             scrollMode = .infinite
         }
         selectedScreenID = CGDirectDisplayID(defaults.object(forKey: DefaultsKey.selectedScreenID) as? UInt32 ?? 0)
+        selectedScreenName = defaults.string(forKey: DefaultsKey.selectedScreenName) ?? ""
     }
 
     func saveToDefaults() {
@@ -334,6 +367,7 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
         defaults.set(countdownBehavior.rawValue, forKey: DefaultsKey.countdownBehavior)
         defaults.set(scrollMode.rawValue, forKey: DefaultsKey.scrollMode)
         defaults.set(selectedScreenID, forKey: DefaultsKey.selectedScreenID)
+        defaults.set(selectedScreenName, forKey: DefaultsKey.selectedScreenName)
     }
 
     private func beginCountdown(seconds: Int) {

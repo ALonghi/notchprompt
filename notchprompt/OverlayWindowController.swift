@@ -26,25 +26,18 @@ private final class OverlayPanel: NSPanel {
         super.sendEvent(event)
     }
 
-    @objc func paste(_ sender: Any?) {
-        guard let text = NSPasteboard.general.string(forType: .string) else { return }
-        Task { @MainActor in
-            PrompterModel.shared.pasteScript(text)
-        }
-    }
+    /// Shows the overlay menu on right-click.
+    var onRightClick: (() -> Void)?
 
-    @objc func clearScript(_ sender: Any?) {
+    /// ⌘V while the overlay is focused replaces the script with the clipboard.
+    @objc func paste(_ sender: Any?) {
         Task { @MainActor in
-            PrompterModel.shared.script = ""
+            PrompterModel.shared.pasteFromClipboard()
         }
     }
 
     override func rightMouseDown(with event: NSEvent) {
-        guard let view = contentView else { return }
-        let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Paste", action: #selector(paste(_:)), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Clear", action: #selector(clearScript(_:)), keyEquivalent: ""))
-        NSMenu.popUpContextMenu(menu, with: event, for: view)
+        onRightClick?()
     }
 }
 
@@ -55,7 +48,7 @@ private final class ClickThroughHostingView<Content: View>: NSHostingView<Conten
 @MainActor
 final class OverlayWindowController {
     private let model: PrompterModel
-    private let panel: NSPanel
+    private let panel: OverlayPanel
     // Keep this at 0 to hug the notch/menu bar boundary like other notch-adjacent apps.
     // We still position using `visibleFrame` so we never enter the reserved top strip.
     private let padding: CGFloat = 0
@@ -64,8 +57,6 @@ final class OverlayWindowController {
 
     init(model: PrompterModel) {
         self.model = model
-
-        let hosting = ClickThroughHostingView(rootView: OverlayView(model: model))
 
         let initialFrame = NSRect(x: 0, y: 0, width: model.overlayWidth, height: model.overlayHeight)
         let panel = OverlayPanel(
@@ -89,9 +80,22 @@ final class OverlayWindowController {
         panel.ignoresMouseEvents = false
         panel.becomesKeyOnlyIfNeeded = false
         panel.sharingType = model.privacyModeEnabled ? .none : .readOnly
-
-        panel.contentView = hosting
         self.panel = panel
+
+        let overlay = OverlayView(
+            model: model,
+            presentMenu: { [weak self] menu in
+                self?.presentMenu(menu)
+            },
+            onDragEnded: { [weak self] mouseLocation in
+                self?.finishDrag(at: mouseLocation)
+            }
+        )
+        panel.contentView = ClickThroughHostingView(rootView: overlay)
+        panel.onRightClick = { [weak self] in
+            guard let self else { return }
+            self.presentMenu(AppMenus.overlayMenu(model: self.model))
+        }
 
         reposition()
 
@@ -142,12 +146,15 @@ final class OverlayWindowController {
         )
 #endif
 
+        // Compare with the live frame, not lastFrame, so an overlay dropped
+        // after a drag glides into place.
         let shouldAnimate: Bool
-        if let lastFrame {
-            let movedEnough = abs(lastFrame.origin.x - targetFrame.origin.x) > 0.5 ||
-                abs(lastFrame.origin.y - targetFrame.origin.y) > 0.5
-            let resizedEnough = abs(lastFrame.size.width - targetFrame.size.width) > 0.5 ||
-                abs(lastFrame.size.height - targetFrame.size.height) > 0.5
+        if lastFrame != nil {
+            let currentFrame = panel.frame
+            let movedEnough = abs(currentFrame.origin.x - targetFrame.origin.x) > 0.5 ||
+                abs(currentFrame.origin.y - targetFrame.origin.y) > 0.5
+            let resizedEnough = abs(currentFrame.size.width - targetFrame.size.width) > 0.5 ||
+                abs(currentFrame.size.height - targetFrame.size.height) > 0.5
             shouldAnimate = movedEnough || resizedEnough
         } else {
             shouldAnimate = false
@@ -180,33 +187,47 @@ final class OverlayWindowController {
 #endif
     }
 
-    private func targetScreen() -> NSScreen? {
-        let screens = NSScreen.screens
-        let descriptors = screens.compactMap { screen -> ScreenDescriptor? in
-            guard let id = displayID(for: screen) else { return nil }
-            return ScreenDescriptor(
-                id: id,
-                localizedName: screen.localizedName,
-                isBuiltIn: CGDisplayIsBuiltin(id) != 0,
-                isMenuBarScreen: id == CGMainDisplayID()
-            )
+    /// Opens `menu` just below the overlay, under the pointer. Opening it over
+    /// the overlay would hide the script behind the menu.
+    func presentMenu(_ menu: NSMenu) {
+        let frame = panel.frame
+        // Clamped to the overlay for presses that don't come from the mouse
+        // (VoiceOver, accessibility tools).
+        let x = min(max(NSEvent.mouseLocation.x - 14, frame.minX), frame.maxX - 40)
+        let location = NSPoint(x: x, y: frame.minY - 4)
+        // Let the click that opened the menu finish first.
+        DispatchQueue.main.async {
+            menu.popUp(positioning: nil, at: location, in: nil)
         }
+    }
 
-        guard let targetID = ScreenSelection.chooseScreenID(
-            selectedScreenID: model.selectedScreenID,
-            screens: descriptors
+    /// Puts the overlay on the display it was dropped on, at the top center.
+    private func finishDrag(at mouseLocation: NSPoint) {
+        let catalog = DisplayCatalog.shared
+        catalog.refresh()
+        if let target = catalog.display(at: mouseLocation) {
+            let current = catalog.resolvedDisplay(
+                selectedID: model.selectedScreenID,
+                selectedName: model.selectedScreenName
+            )
+            if target.id != current?.id {
+                model.selectDisplay(id: target.id, name: target.name)
+            }
+        }
+        reposition()
+    }
+
+    private func targetScreen() -> NSScreen? {
+        let catalog = DisplayCatalog.shared
+        // The screen list may have changed since the catalog last refreshed.
+        catalog.refresh()
+        guard let display = catalog.resolvedDisplay(
+            selectedID: model.selectedScreenID,
+            selectedName: model.selectedScreenName
         ) else {
             return nil
         }
-
-        return screens.first(where: { displayID(for: $0) == targetID })
-    }
-
-    private func displayID(for screen: NSScreen) -> CGDirectDisplayID? {
-        guard let n = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
-            return nil
-        }
-        return CGDirectDisplayID(n.uint32Value)
+        return catalog.screen(for: display.id)
     }
 }
 

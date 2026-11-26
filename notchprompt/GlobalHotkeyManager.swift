@@ -30,6 +30,25 @@ enum ShortcutCommand: CaseIterable {
         }
     }
 
+    var title: String {
+        switch self {
+        case .startPause:
+            return "Start / Pause"
+        case .reset:
+            return "Reset scroll"
+        case .jumpBack:
+            return "Jump back 5 seconds"
+        case .togglePrivacy:
+            return "Toggle privacy mode"
+        case .toggleOverlay:
+            return "Show / hide overlay"
+        case .speedUp:
+            return "Increase speed"
+        case .speedDown:
+            return "Decrease speed"
+        }
+    }
+
     var displayShortcut: String {
         switch self {
         case .startPause:
