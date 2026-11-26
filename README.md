@@ -35,6 +35,30 @@ Native macOS notch-adjacent teleprompter for presentations and recordings.
   `notchprompt.xcodeproj`.
 - Apple Silicon or Intel Mac.
 
+## Run Safely (Sandboxed Build From Source)
+
+Notchprompt is a native macOS app, so it cannot run in Docker (Docker runs
+Linux containers). Instead, this builds it from source and locks it inside the
+macOS App Sandbox, which the kernel enforces:
+
+- no network access at all (no network entitlement is granted)
+- file access only to files you pick in an Open/Save dialog
+- hardened runtime, no helper executables in the bundle
+
+Requirements: macOS 14+ and full Xcode (App Store; open it once).
+
+```bash
+make run       # build, verify, launch
+make install   # build, verify, copy to /Applications
+make verify    # re-check the built app (or: scripts/sandboxed.sh verify /Applications/notchprompt.app)
+```
+
+The script stops with an error, without producing an app, if the result is not
+sandboxed with exactly the permissions in `scripts/sandbox.entitlements`, or if
+the app source differs from the security-reviewed commit (override with
+`ALLOW_UNREVIEWED=1` after reviewing the diff). Locally built apps are not
+quarantined, so the `xattr -cr` step below is not needed.
+
 ## Install (Recommended)
 
 1. Open GitHub Releases:
