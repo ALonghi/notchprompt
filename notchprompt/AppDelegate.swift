@@ -72,6 +72,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .store(in: &cancellables)
         
         model.$isOverlayVisible
+            // applicationDidFinishLaunching already applied the initial value.
+            // Applying it again here would run after the editor window opens
+            // at launch and take keyboard focus from it.
+            .dropFirst()
             .receive(on: RunLoop.main)
             .sink { [weak self] isVisible in
                 self?.overlayController?.setVisible(isVisible)

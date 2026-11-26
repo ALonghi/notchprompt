@@ -99,6 +99,11 @@ struct OverlayView: View {
         model.isRunning || model.isCountingDown
     }
 
+    private var playButtonHelp: String {
+        if model.isCountingDown { return "Cancel the countdown" }
+        return model.isRunning ? "Pause (then scroll with the trackpad to move by hand)" : "Start scrolling"
+    }
+
     /// Room for one group of controls between the overlay's edge and the
     /// camera housing, which hides anything drawn behind it.
     private var sideWidth: CGFloat {
@@ -225,7 +230,7 @@ struct OverlayView: View {
                 OverlayControlButton(symbol: isPlaying ? "pause.fill" : "play.fill", label: isPlaying ? "Pause" : "Start") {
                     model.switchPlaybackModeFromOverlayControl()
                 }
-                .help(isPlaying ? "Pause (then scroll with the trackpad to move by hand)" : "Start scrolling")
+                .help(playButtonHelp)
                 .disabled(!model.hasScript && !isPlaying)
 
                 OverlayControlButton(symbol: "gobackward.5", label: "Jump Back 5 Seconds") {

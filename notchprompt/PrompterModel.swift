@@ -163,7 +163,14 @@ Tip: Use the menu bar icon to start/pause or reset the scroll.
     }
 
     func switchPlaybackModeFromOverlayControl() {
-        if isRunning || isCountingDown {
+        if isCountingDown {
+            // Cancelled before scrolling began: keep the fresh-start state so
+            // the next start counts down again.
+            stop()
+            return
+        }
+
+        if isRunning {
             stop()
             manualScrollEnabled = true
             didReachEndInStopMode = false
