@@ -55,12 +55,8 @@ struct ScrollingTextView: View {
         isActivelyAnimating ? Self.activeTickInterval : Self.idleTickInterval
     }
 
-    private var emptyStateMessage: String {
-        "No script yet.\nOpen Settings and paste your script to begin."
-    }
-
-    private var initialStateMessage: String {
-        "Ready to prompt.\nPress Start to begin countdown."
+    private var initialStateMessage: Text {
+        Text("Ready to prompt.\nPress \(Image(systemName: "play.fill")) or ⌥⌘P to start.")
     }
 
     private var clampedFadeFraction: CGFloat {
@@ -132,19 +128,15 @@ struct ScrollingTextView: View {
                         }
                         .offset(y: effectiveOffsetY)
                     } else if hasContent {
-                        Text(initialStateMessage)
+                        initialStateMessage
                             .font(.system(size: max(fontSize * 0.72, 13), weight: .regular, design: .monospaced))
                             .foregroundStyle(.white.opacity(0.75))
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                             .padding(.horizontal, 12)
                     } else {
-                        Text(emptyStateMessage)
-                            .font(.system(size: max(fontSize * 0.72, 13), weight: .regular, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.75))
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                            .padding(.horizontal, 12)
+                        // OverlayView shows the empty state with its paste and editor buttons.
+                        Color.clear
                     }
                 }
                 .frame(width: viewportProxy.size.width, height: viewportProxy.size.height, alignment: .topLeading)

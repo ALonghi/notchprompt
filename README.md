@@ -23,11 +23,37 @@ Native macOS notch-adjacent teleprompter for presentations and recordings.
 
 - Menu bar utility workflow (`NP` status item).
 - Notch-adjacent floating overlay with transport controls.
+- One window for the script editor and settings.
+- Paste a script straight from the clipboard, type it, or import a document.
+- Move the overlay to any connected display.
 - Start/pause, reset, and jump back 5 seconds.
 - Adjustable speed, font size, overlay width, and overlay height.
 - Optional countdown before scrolling starts.
-- Import/export plain text scripts.
+- Import/export scripts (TXT, Markdown, RTF, Word, Pages, PDF).
 - Privacy mode (`NSWindow.SharingType`, best-effort/app-dependent).
+
+## Using Notchprompt
+
+**Add your script.** Notchprompt opens its window on first launch. Copy your
+transcript from anywhere and click **Paste from Clipboard** (or click in the
+editor and press `⌘V`), type it, or click **Import File…**. You can also paste
+from the overlay itself: its **Paste from Clipboard** button, `⌘V` after
+clicking it, or its `…` menu. To open the editor later, click the pencil on the
+overlay, double-click the overlay, or choose **Edit Script…** from the `NP`
+menu.
+
+**Choose the display.** The overlay sits at the top center of the built-in
+display by default. To move it:
+
+- drag the overlay onto another screen,
+- click the display button on the overlay (shown when more than one display is
+  connected),
+- use **Display** in the `NP` menu, or
+- click a display in the map under **Settings → Display**.
+
+**Prompt.** Press play on the overlay, **Start Prompting** in the editor, or
+`⌥⌘P`. Pausing switches to manual mode: scroll on the overlay with the
+trackpad to move through the script.
 
 ## Requirements
 
@@ -97,6 +123,7 @@ If it is still blocked:
 | `⌥⌘R` | Reset scroll |
 | `⌥⌘J` | Jump back 5s |
 | `⌥⌘H` | Toggle Privacy Mode |
+| `⌥⌘O` | Show / hide the overlay |
 | `⌥⌘=` | Increase speed |
 | `⌥⌘-` | Decrease speed |
 

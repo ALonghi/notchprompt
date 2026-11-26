@@ -13,7 +13,17 @@ struct notchpromptApp: App {
 
     var body: some Scene {
         Settings {
-            ContentView()
+            SettingsView()
+                .frame(width: 380, height: 600)
+        }
+        .commands {
+            // Settings live beside the script editor in the main window.
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
+                    MainWindowController.shared.show(.settings)
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
         }
     }
 }

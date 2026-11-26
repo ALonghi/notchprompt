@@ -10,31 +10,26 @@ import Combine
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let shortcutModifiers: NSEvent.ModifierFlags = [.command, .option]
 
     private let model = PrompterModel.shared
 
     private var statusItem: NSStatusItem?
     private var overlayController: OverlayWindowController?
-    private var settingsWindowController: SettingsWindowController?
-    private var scriptEditorWindowController: ScriptEditorWindowController?
     private var cancellables: Set<AnyCancellable> = []
-
-    private var startPauseItem: NSMenuItem?
-    private var showOverlayItem: NSMenuItem?
-    private var privacyModeItem: NSMenuItem?
-    private var speedUpItem: NSMenuItem?
-    private var speedDownItem: NSMenuItem?
-    private var shortcutWarningItem: NSMenuItem?
-    private var shortcutWarningDetailItem: NSMenuItem?
-    private var shortcutWarningSeparator: NSMenuItem?
     private lazy var hotkeyManager = GlobalHotkeyManager { [weak self] command in
         self?.performShortcut(command)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         model.loadFromDefaults()
+        // Selections saved by earlier versions have no display name; record it
+        // so the display can be found again if its ID changes.
+        if model.selectedScreenID != 0, model.selectedScreenName.isEmpty,
+           let display = DisplayCatalog.shared.display(withID: model.selectedScreenID) {
+            model.selectedScreenName = display.name
+        }
         overlayController = OverlayWindowController(model: model)
         overlayController?.setVisible(model.isOverlayVisible)
 
@@ -48,6 +43,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         hotkeyManager.registerAll()
         setupStatusBar()
         installEditKeyHandler()
+
+        // First launch, or nothing to prompt: open the editor so it's obvious
+        // where the script goes.
+        if model.isFirstLaunch || !model.hasScript {
+            MainWindowController.shared.show(.script)
+        }
+    }
+
+    /// Opening the app again (Dock, Finder, Spotlight) shows the editor.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        MainWindowController.shared.show(.script)
+        return false
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -65,6 +72,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             .store(in: &cancellables)
         
         model.$isOverlayVisible
+            // applicationDidFinishLaunching already applied the initial value.
+            // Applying it again here would run after the editor window opens
+            // at launch and take keyboard focus from it.
+            .dropFirst()
             .receive(on: RunLoop.main)
             .sink { [weak self] isVisible in
                 self?.overlayController?.setVisible(isVisible)
@@ -111,7 +122,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             model.$countdownSeconds.map { _ in () }.eraseToAnyPublisher(),
             model.$countdownBehavior.map { _ in () }.eraseToAnyPublisher(),
             model.$scrollMode.map { _ in () }.eraseToAnyPublisher(),
-            model.$selectedScreenID.map { _ in () }.eraseToAnyPublisher()
+            model.$selectedScreenID.map { _ in () }.eraseToAnyPublisher(),
+            model.$selectedScreenName.map { _ in () }.eraseToAnyPublisher()
         )
         .debounce(for: .milliseconds(250), scheduler: RunLoop.main)
         .sink { [weak self] in
@@ -148,98 +160,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         item.button?.toolTip = "Notchprompt"
 
         let menu = NSMenu()
-
-        let startPause = NSMenuItem(
-            title: "Start/Pause",
-            action: #selector(toggleRunning),
-            keyEquivalent: ShortcutCommand.startPause.keyEquivalent
-        )
-        startPause.target = self
-        startPause.keyEquivalentModifierMask = shortcutModifiers
-        menu.addItem(startPause)
-        startPauseItem = startPause
-
-        let reset = NSMenuItem(
-            title: "Reset Scroll",
-            action: #selector(resetScroll),
-            keyEquivalent: ShortcutCommand.reset.keyEquivalent
-        )
-        reset.target = self
-        reset.keyEquivalentModifierMask = shortcutModifiers
-        menu.addItem(reset)
-
-        let jumpBack = NSMenuItem(
-            title: "Jump Back 5s",
-            action: #selector(jumpBack),
-            keyEquivalent: ShortcutCommand.jumpBack.keyEquivalent
-        )
-        jumpBack.target = self
-        jumpBack.keyEquivalentModifierMask = shortcutModifiers
-        menu.addItem(jumpBack)
-
-        let privacyMode = NSMenuItem(
-            title: "Privacy Mode",
-            action: #selector(togglePrivacyMode),
-            keyEquivalent: ShortcutCommand.togglePrivacy.keyEquivalent
-        )
-        privacyMode.target = self
-        privacyMode.keyEquivalentModifierMask = shortcutModifiers
-        menu.addItem(privacyMode)
-        privacyModeItem = privacyMode
-
-        let showOverlay = NSMenuItem(
-            title: "Show Overlay",
-            action: #selector(toggleOverlayVisibility),
-            keyEquivalent: ShortcutCommand.toggleOverlay.keyEquivalent
-        )
-        showOverlay.target = self
-        showOverlay.keyEquivalentModifierMask = shortcutModifiers
-        menu.addItem(showOverlay)
-        showOverlayItem = showOverlay
-
-        let speedUp = NSMenuItem(
-            title: "Increase Speed",
-            action: #selector(increaseSpeed),
-            keyEquivalent: ShortcutCommand.speedUp.keyEquivalent
-        )
-        speedUp.target = self
-        speedUp.keyEquivalentModifierMask = shortcutModifiers
-        menu.addItem(speedUp)
-        speedUpItem = speedUp
-
-        let speedDown = NSMenuItem(
-            title: "Decrease Speed",
-            action: #selector(decreaseSpeed),
-            keyEquivalent: ShortcutCommand.speedDown.keyEquivalent
-        )
-        speedDown.target = self
-        speedDown.keyEquivalentModifierMask = shortcutModifiers
-        menu.addItem(speedDown)
-        speedDownItem = speedDown
-
-        refreshShortcutWarningItems(in: menu)
-
-        menu.addItem(.separator())
-
-        let openScriptEditor = NSMenuItem(title: "Script Editor…", action: #selector(openScriptEditorWindow), keyEquivalent: "")
-        openScriptEditor.target = self
-        menu.addItem(openScriptEditor)
-
-        menu.addItem(.separator())
-
-        let open = NSMenuItem(title: "Settings…", action: #selector(openMainWindow), keyEquivalent: "")
-        open.target = self
-        menu.addItem(open)
-
-        menu.addItem(.separator())
-
-        let quit = NSMenuItem(title: "Quit Notchprompt", action: #selector(quitApp), keyEquivalent: "q")
-        quit.target = self
-        quit.keyEquivalentModifierMask = [.command]
-        menu.addItem(quit)
-
+        menu.autoenablesItems = false
+        menu.delegate = self
         item.menu = menu
         statusItem = item
+        rebuildStatusMenu(menu)
+    }
+
+    // MARK: - NSMenuDelegate
+
+    /// Rebuilt on every open so titles, check marks and the display list are current.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === statusItem?.menu else { return }
+        rebuildStatusMenu(menu)
+    }
+
+    private func rebuildStatusMenu(_ menu: NSMenu) {
+        menu.removeAllItems()
+        addShortcutWarnings(to: menu)
+
+        let isPlaying = model.isRunning || model.isCountingDown
+        let startPause = shortcutItem(isPlaying ? "Pause" : "Start", .startPause)
+        startPause.isEnabled = isPlaying || model.hasScript
+        menu.addItem(startPause)
+        menu.addItem(shortcutItem("Reset Scroll", .reset))
+        menu.addItem(shortcutItem("Jump Back 5s", .jumpBack))
+        menu.addItem(shortcutItem("Increase Speed", .speedUp))
+        menu.addItem(shortcutItem("Decrease Speed", .speedDown))
+
+        menu.addItem(.separator())
+
+        let editScript = ActionMenuItem(title: "Edit Script…") {
+            MainWindowController.shared.show(.script)
+        }
+        editScript.image = NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: nil)
+        menu.addItem(editScript)
+
+        let paste = ActionMenuItem(title: model.pasteMenuTitle) { [model] in
+            model.pasteFromClipboard()
+        }
+        paste.image = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: nil)
+        menu.addItem(paste)
+
+        menu.addItem(.separator())
+
+        menu.addItem(AppMenus.displaySubmenuItem(title: "Display", model: model))
+        let showOverlay = shortcutItem("Show Overlay", .toggleOverlay)
+        showOverlay.state = model.isOverlayVisible ? .on : .off
+        menu.addItem(showOverlay)
+        let privacyMode = shortcutItem("Privacy Mode", .togglePrivacy)
+        privacyMode.state = model.privacyModeEnabled ? .on : .off
+        privacyMode.toolTip = "Hide the overlay from screen sharing and recordings (best effort)."
+        menu.addItem(privacyMode)
+
+        menu.addItem(.separator())
+
+        menu.addItem(ActionMenuItem(title: "Settings…", keyEquivalent: ",") {
+            MainWindowController.shared.show(.settings)
+        })
+
+        menu.addItem(.separator())
+
+        menu.addItem(ActionMenuItem(title: "Quit Notchprompt", keyEquivalent: "q") {
+            NSApp.terminate(nil)
+        })
+    }
+
+    /// A menu item for a command that also has a global shortcut.
+    private func shortcutItem(_ title: String, _ command: ShortcutCommand) -> NSMenuItem {
+        ActionMenuItem(title: title, keyEquivalent: command.keyEquivalent, modifiers: shortcutModifiers) { [weak self] in
+            self?.performShortcut(command)
+        }
     }
 
     // MARK: - Edit key handler (Cmd+C/V/X/A/Z bypass for menu-bar apps)
@@ -269,60 +260,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // MARK: - Actions
 
-    @objc private func toggleRunning() {
-        model.toggleRunning()
-    }
-
-    @objc private func resetScroll() {
-        model.resetScroll()
-    }
-
-    @objc private func jumpBack() {
-        model.jumpBack(seconds: 5)
-    }
-
-    @objc private func togglePrivacyMode() {
-        model.privacyModeEnabled.toggle()
-    }
-    
-    @objc private func toggleOverlayVisibility() {
-        model.isOverlayVisible.toggle()
-    }
-
-    @objc private func increaseSpeed() {
-        model.adjustSpeed(delta: PrompterModel.speedStep)
-    }
-
-    @objc private func decreaseSpeed() {
-        model.adjustSpeed(delta: -PrompterModel.speedStep)
-    }
-
-    @objc private func openMainWindow() {
-        Task { @MainActor in
-            if settingsWindowController == nil {
-                settingsWindowController = SettingsWindowController()
-            }
-            settingsWindowController?.show()
-        }
-    }
-    
-    @objc private func openScriptEditorWindow() {
-        Task { @MainActor in
-            if scriptEditorWindowController == nil {
-                scriptEditorWindowController = ScriptEditorWindowController()
-            }
-            scriptEditorWindowController?.show()
-        }
-    }
-
-    @objc private func quitApp() {
-        NSApp.terminate(nil)
-    }
-
     private func performShortcut(_ command: ShortcutCommand) {
         switch command {
         case .startPause:
-            model.toggleRunning()
+            if !model.hasScript && !model.isRunning && !model.isCountingDown {
+                // Nothing to prompt yet: show where the script goes.
+                MainWindowController.shared.show(.script)
+            } else {
+                model.toggleRunning()
+            }
         case .reset:
             model.resetScroll()
         case .jumpBack:
@@ -338,20 +284,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
-    private func refreshShortcutWarningItems(in menu: NSMenu) {
-        if let shortcutWarningItem {
-            menu.removeItem(shortcutWarningItem)
-            self.shortcutWarningItem = nil
-        }
-        if let shortcutWarningDetailItem {
-            menu.removeItem(shortcutWarningDetailItem)
-            self.shortcutWarningDetailItem = nil
-        }
-        if let shortcutWarningSeparator {
-            menu.removeItem(shortcutWarningSeparator)
-            self.shortcutWarningSeparator = nil
-        }
-
+    private func addShortcutWarnings(to menu: NSMenu) {
         let unavailable = hotkeyManager.failedRegistrations
         guard !unavailable.isEmpty else { return }
 
@@ -362,8 +295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 keyEquivalent: ""
             )
             warning.isEnabled = false
-            menu.insertItem(warning, at: 0)
-            shortcutWarningItem = warning
+            menu.addItem(warning)
         } else {
             let warning = NSMenuItem(
                 title: "Shortcuts unavailable (\(unavailable.count))",
@@ -371,8 +303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 keyEquivalent: ""
             )
             warning.isEnabled = false
-            menu.insertItem(warning, at: 0)
-            shortcutWarningItem = warning
+            menu.addItem(warning)
 
             let detail = unavailable
                 .map(\.displayShortcut)
@@ -383,13 +314,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 keyEquivalent: ""
             )
             detailItem.isEnabled = false
-            menu.insertItem(detailItem, at: 1)
-            shortcutWarningDetailItem = detailItem
+            menu.addItem(detailItem)
         }
 
-        let separator = NSMenuItem.separator()
-        menu.insertItem(separator, at: unavailable.count == 1 ? 1 : 2)
-        shortcutWarningSeparator = separator
+        menu.addItem(.separator())
     }
 
 #if DEBUG
@@ -397,29 +325,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         GlobalHotkeyManager.runSelfChecks()
     }
 #endif
-
-    // MARK: - Menu Validation
-
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        if menuItem === startPauseItem {
-            menuItem.title = model.isRunning ? "Pause" : "Start"
-            return true
-        }
-
-        if menuItem === privacyModeItem {
-            menuItem.state = model.privacyModeEnabled ? .on : .off
-            return true
-        }
-        
-        if menuItem === showOverlayItem {
-            menuItem.state = model.isOverlayVisible ? .on : .off
-            return true
-        }
-
-        if menuItem === speedUpItem || menuItem === speedDownItem {
-            return true
-        }
-
-        return true
-    }
 }

@@ -12,6 +12,33 @@ enum ScreenSelectionSelfTests {
         assertUserSelectionRespected()
         assertFallsBackToMenuBarWhenNoBuiltIn()
         assertFallsBackToNameHeuristic()
+        assertFindsSavedDisplayByNameWhenIDChanges()
+        assertIgnoresSavedNameWhenDisplayIsGone()
+    }
+
+    private static func assertFindsSavedDisplayByNameWhenIDChanges() {
+        let screens = [
+            ScreenDescriptor(id: 1, localizedName: "Built-in Retina Display", isBuiltIn: true, isMenuBarScreen: false),
+            ScreenDescriptor(id: 9, localizedName: "Studio Display", isBuiltIn: false, isMenuBarScreen: true)
+        ]
+        let chosen = ScreenSelection.chooseScreenID(
+            selectedScreenID: 4,
+            selectedScreenName: "Studio Display",
+            screens: screens
+        )
+        assert(chosen == 9, "Expected the saved display to be found by name after its ID changed")
+    }
+
+    private static func assertIgnoresSavedNameWhenDisplayIsGone() {
+        let screens = [
+            ScreenDescriptor(id: 1, localizedName: "Built-in Retina Display", isBuiltIn: true, isMenuBarScreen: true)
+        ]
+        let chosen = ScreenSelection.chooseScreenID(
+            selectedScreenID: 4,
+            selectedScreenName: "Studio Display",
+            screens: screens
+        )
+        assert(chosen == 1, "Expected the built-in fallback when the saved display is not connected")
     }
 
     private static func assertBuiltInPreferredByDefault() {
