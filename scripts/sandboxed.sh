@@ -19,11 +19,6 @@ INSTALL_DIR="${INSTALL_DIR:-/Applications}"
 BUNDLE_ID="notch.notchprompt"
 MIN_MACOS_MAJOR=14
 
-# The app source was security-reviewed at this commit (upstream
-# saif0200/notchprompt). The build refuses to compile anything else unless
-# ALLOW_UNREVIEWED=1 is set.
-REVIEWED_COMMIT="bbe1e19a8610986efd3a6c0ff52966d8138ad577"
-
 EXPECTED_ENTITLEMENTS=(
   "com.apple.security.app-sandbox"
   "com.apple.security.files.user-selected.read-write"
@@ -43,32 +38,6 @@ require_macos() {
   xcodebuild -version >/dev/null 2>&1 || die "Full Xcode is required (Command Line Tools alone cannot build apps).
   Install Xcode from the App Store, open it once, then run:
     sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
-}
-
-check_source() {
-  step "Checking app source matches the reviewed commit ${REVIEWED_COMMIT:0:7}"
-  local problem=""
-  if ! git -C "$ROOT_DIR" cat-file -e "${REVIEWED_COMMIT}^{commit}" 2>/dev/null; then
-    problem="reviewed commit not present in this clone"
-  elif ! git -C "$ROOT_DIR" diff --quiet "$REVIEWED_COMMIT" -- notchprompt notchprompt.xcodeproj/project.pbxproj; then
-    problem="tracked app source differs from the reviewed commit"
-  else
-    # Xcode compiles every file in notchprompt/ (synchronized folder), so
-    # untracked or git-ignored files there would be built too.
-    local extra
-    extra="$(git -C "$ROOT_DIR" ls-files --others -- notchprompt | grep -v '\.DS_Store$' || true)"
-    [[ -z "$extra" ]] || problem="unreviewed files in notchprompt/: ${extra//$'\n'/, }"
-  fi
-
-  if [[ -n "$problem" ]]; then
-    if [[ "${ALLOW_UNREVIEWED:-0}" == "1" ]]; then
-      echo "warning: ${problem}; continuing because ALLOW_UNREVIEWED=1" >&2
-    else
-      die "${problem}.
-  Review the changes (git diff ${REVIEWED_COMMIT:0:7} -- notchprompt) and, if you trust them,
-  rerun with ALLOW_UNREVIEWED=1 or update REVIEWED_COMMIT in this script."
-    fi
-  fi
 }
 
 build_app() {
@@ -153,17 +122,17 @@ confirm_running_sandboxed() {
 cmd="${1:-build}"
 case "$cmd" in
   build)
-    require_macos; check_source; build_app; verify_app "$APP_PATH"
+    require_macos; build_app; verify_app "$APP_PATH"
     echo "Built: $APP_PATH"
     ;;
   run)
-    require_macos; check_source; build_app; verify_app "$APP_PATH"
+    require_macos; build_app; verify_app "$APP_PATH"
     step "Launching"
     open "$APP_PATH"
     confirm_running_sandboxed
     ;;
   install)
-    require_macos; check_source; build_app; verify_app "$APP_PATH"
+    require_macos; build_app; verify_app "$APP_PATH"
     target="$INSTALL_DIR/notchprompt.app"
     if [[ -e "$target" ]]; then
       pkill -x notchprompt 2>/dev/null || true

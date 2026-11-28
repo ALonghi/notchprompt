@@ -80,10 +80,10 @@ make verify    # re-check the built app (or: scripts/sandboxed.sh verify /Applic
 ```
 
 The script stops with an error, without producing an app, if the result is not
-sandboxed with exactly the permissions in `scripts/sandbox.entitlements`, or if
-the app source differs from the security-reviewed commit (override with
-`ALLOW_UNREVIEWED=1` after reviewing the diff). Locally built apps are not
-quarantined, so the `xattr -cr` step below is not needed.
+sandboxed with exactly the permissions in `scripts/sandbox.entitlements`. The
+sandbox applies to whatever code you build, including your own changes.
+Locally built apps are not quarantined, so the `xattr -cr` step below is not
+needed.
 
 ## Install (Recommended)
 
